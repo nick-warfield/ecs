@@ -15,7 +15,6 @@ pub struct Entity
 
 
 // name this better, it's accurate but long
-// should implement a Struct of Arrays Pattern
 #[derive(Default, Debug)]
 pub struct EntityComponentSystem<'a>
 {
@@ -35,7 +34,7 @@ impl<'a> EntityComponentSystem<'a>
 		self.names.push(Name(name));
 		self.positions.push(position);
 		self.velocities.push(velocity);
-		Entity { index: 0 }
+		Entity { index: self.names.len() - 1 }
 	}
 	pub fn get(&self, ent: &Entity)
 		-> (&'a Name, &'a Position, &'a Velocity)
@@ -66,5 +65,31 @@ pub mod tests
 		assert_eq!(Name("Pilot Pete"), *name);
 		assert_eq!(Position(5.0, 5.0), *pos);
 		assert_eq!(Velocity(8.0, 0.0), *vel);
+	}
+
+	#[test]
+	fn create_multiple_entities()
+	{
+		let mut ecs: EntityComponentSystem = Default::default();
+		let e1 = ecs.create_entity(
+			"Pilot Pete",
+			Position(5.0, 5.0),
+			Velocity(8.0, 0.0),
+			);
+		let e2 = ecs.create_entity(
+			"Tame Impala",
+			Position(0.1, -50.0),
+			Velocity(0.0, -10.0),
+			);
+
+		let (name, pos, vel) = ecs.get(&e1);
+		assert_eq!(Name("Pilot Pete"), *name);
+		assert_eq!(Position(5.0, 5.0), *pos);
+		assert_eq!(Velocity(8.0, 0.0), *vel);
+
+		let (name, pos, vel) = ecs.get(&e2);
+		assert_eq!(Name("Tame Impala"), *name);
+		assert_eq!(Position(0.1, -50.0), *pos);
+		assert_eq!(Velocity(0.0, -10.0), *vel);
 	}
 }
