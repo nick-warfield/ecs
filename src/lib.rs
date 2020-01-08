@@ -52,23 +52,7 @@ pub mod tests
 	use crate::*;
 
 	#[test]
-	fn create_entity()
-	{
-		let mut ecs: EntityComponentSystem = Default::default();
-		let e = ecs.create_entity(
-			"Pilot Pete",
-			Position(5.0, 5.0),
-			Velocity(8.0, 0.0),
-			);
-
-		let (name, pos, vel) = ecs.get(&e);
-		assert_eq!(Name("Pilot Pete"), *name);
-		assert_eq!(Position(5.0, 5.0), *pos);
-		assert_eq!(Velocity(8.0, 0.0), *vel);
-	}
-
-	#[test]
-	fn create_multiple_entities()
+	fn create_entities()
 	{
 		let mut ecs: EntityComponentSystem = Default::default();
 		let e1 = ecs.create_entity(
