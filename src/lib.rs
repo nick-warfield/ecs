@@ -31,13 +31,13 @@ impl<T: Default> Entry<T>
 
 	pub fn as_ref(&self) -> Option<&T>
 	{
-		if self.is_alive() { None }
-		else { Some(&self.value) }
+		if self.is_alive() { Some(&self.value) }
+		else { None }
 	}
 	pub fn as_mut(&mut self) -> Option<&mut T>
 	{
-		if self.is_alive() { None }
-		else { Some(&mut self.value) }
+		if self.is_alive() { Some(&mut self.value) }
+		else { None }
 	}
 
 	pub fn is_alive(&self) -> bool { self.generation == 0 }
@@ -116,7 +116,10 @@ impl<'a> EntityComponentSystem<'a>
 		-> Option<(&'a Name, &'a Position, &'a Velocity)>
 	{
 		if !self.names[ent.index].is_alive()
-			|| ent.index != self.next_allocation.index { None }
+			|| ent.index != self.next_allocation.index
+		{ 
+			None
+		}
 		else if let (Some(name), Some(pos), Some(vel)) = (
 			self.names[ent.index].as_ref(),
 			self.positions[ent.index].as_ref(),
@@ -127,7 +130,7 @@ impl<'a> EntityComponentSystem<'a>
 		}
 		else
 		{
-			None
+			panic!("Unhandled Case Detected");
 		}
 	}
 }
@@ -154,6 +157,8 @@ pub mod tests
 
 		assert_eq!(1, e1.generation);
 		assert_eq!(0, e1.index);
+
+		// this kind of test is broken
 		if let Some((name, pos, vel)) = ecs.get(&e1)
 		{
 			assert_eq!(Name("Pilot Pete"), *name);
@@ -206,7 +211,7 @@ pub mod tests
 		assert_eq!(None, ecs.get(&e1));
 
 		assert_eq!(e2.index, 1);
-		assert_eq!(e1.generation, 1);
+		assert_eq!(e2.generation, 1);
 		if let Some((name, pos, vel)) = ecs.get(&e2)
 		{
 			assert_eq!(Name("Tame Impala"), *name);
@@ -235,7 +240,7 @@ pub mod tests
 		}
 
 		assert_eq!(e2.index, 1);
-		assert_eq!(e1.generation, 1);
+		assert_eq!(e2.generation, 1);
 		if let Some((name, pos, vel)) = ecs.get(&e2)
 		{
 			assert_eq!(Name("Tame Impala"), *name);
@@ -244,7 +249,7 @@ pub mod tests
 		}
 
 		assert_eq!(e3.index, 2);
-		assert_eq!(e1.generation, 1);
+		assert_eq!(e3.generation, 1);
 		if let Some((name, pos, vel)) = ecs.get(&e3)
 		{
 			assert_eq!(Name("Pilot Pete"), *name);
