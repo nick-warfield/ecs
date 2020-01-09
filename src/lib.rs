@@ -14,11 +14,11 @@ pub struct Entity
 }
 
 // name this better, it's accurate but long
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct EntityComponentSystem<'a>
 {
-	next_allocation: Vec<usize>,	// stack of indexes
-	lookup: Vec<usize>,				// generations; gen 0 == dead
+	next_allocation: Vec<usize>,		// stack of indexes
+	lookup: Vec<usize>,					// generations; odd == dead
 	names: Vec<Option<Name<'a>>>,
 	positions: Vec<Option<Position>>,
 	velocities: Vec<Option<Velocity>>,
@@ -26,16 +26,6 @@ pub struct EntityComponentSystem<'a>
 
 impl<'a> EntityComponentSystem<'a>
 {
-	pub fn new() -> EntityComponentSystem<'a>
-	{
-		EntityComponentSystem {
-			next_allocation: vec![],
-			lookup: vec![],
-			names: vec![],
-			positions: vec![],
-			velocities: vec![],
-		}
-	}
 	pub fn create_entity(
 		&mut self,
 		name: &'a str, 
@@ -43,31 +33,40 @@ impl<'a> EntityComponentSystem<'a>
 		velocity: Velocity,
 		) -> Entity
 	{
-		let index;
 		if let Some(next) = self.next_allocation.pop()
 		{
-			self.lookup[next] = 1;
+			self.lookup[next] += 1;
 			self.names[next] = Some(Name(name));
 			self.positions[next] = Some(position);
 			self.velocities[next] = Some(velocity);
-			index = next;
+			Entity {
+				index: next,
+				generation: self.lookup[next],
+			}
 		}
 		else
 		{
-			self.lookup.push(1);
+			self.lookup.push(0);
 			self.names.push(Some(Name(name)));
 			self.positions.push(Some(position));
 			self.velocities.push(Some(velocity));
-			index = self.lookup.len() - 1;
+			Entity {
+				index: self.lookup.len() - 1,
+				generation: 0,
+			}
 		}
-
-		Entity { index, generation: 1 }
 	}
 
 	pub fn remove_entity(&mut self, ent: &Entity)
 	{
-		self.lookup[ent.index] = 0;
-		self.next_allocation.push(ent.index);
+		if let Some(gen) = self.lookup.get(ent.index)
+		{
+			if *gen % 2 == 0
+			{
+				self.lookup[ent.index] += 1;
+				self.next_allocation.push(ent.index);
+			}
+		}
 	}
 
 	// make these a macro or template
@@ -119,7 +118,7 @@ pub mod tests
 	#[test]
 	fn create_entities()
 	{
-		let mut ecs = EntityComponentSystem::new();
+		let mut ecs = EntityComponentSystem::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -132,13 +131,13 @@ pub mod tests
 			);
 
 		assert_eq!(0, e1.index);
-		assert_eq!(1, e1.generation);
+		assert_eq!(0, e1.generation);
 		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e1).unwrap());
 		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e1).unwrap());
 		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e1).unwrap());
 
 		assert_eq!(1, e2.index);
-		assert_eq!(1, e2.generation);
+		assert_eq!(0, e2.generation);
 		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
 		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
 		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
@@ -147,7 +146,7 @@ pub mod tests
 	#[test]
 	fn remove_entity()
 	{
-		let mut ecs = EntityComponentSystem::new();
+		let mut ecs = EntityComponentSystem::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -161,9 +160,9 @@ pub mod tests
 	}
 
 	#[test]
-	fn overwrite_removed_entity()
+	fn stack_allocation()
 	{
-		let mut ecs = EntityComponentSystem::new();
+		let mut ecs = EntityComponentSystem::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -176,14 +175,6 @@ pub mod tests
 			);
 		
 		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get_name(&e1));
-
-		assert_eq!(1, e2.index);
-		assert_eq!(1, e2.generation);
-		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
-		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
-		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
-
 		let e1 = ecs.create_entity(
 			"Hannah Montana",
 			Position(-0.1, -5.0),
@@ -196,29 +187,28 @@ pub mod tests
 			);
 
 		assert_eq!(0, e1.index);
-		assert_eq!(1, e1.generation);
+		assert_eq!(2, e1.generation);
 		assert_eq!(Name("Hannah Montana"), *ecs.get_name(&e1).unwrap());
 		assert_eq!(Position(-0.1, -5.0), *ecs.get_position(&e1).unwrap());
 		assert_eq!(Velocity(0.0, -11.0), *ecs.get_velocity(&e1).unwrap());
 
 		assert_eq!(1, e2.index);
-		assert_eq!(1, e2.generation);
+		assert_eq!(0, e2.generation);
 		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
 		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
 		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
 
 		assert_eq!(2, e3.index);
-		assert_eq!(1, e3.generation);
+		assert_eq!(0, e3.generation);
 		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e3).unwrap());
 		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e3).unwrap());
 		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e3).unwrap());
-
 	}
 
 	#[test]
 	fn different_generations()
 	{
-		let mut ecs = EntityComponentSystem::new();
+		let mut ecs = EntityComponentSystem::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -232,9 +222,8 @@ pub mod tests
 			Velocity(0.0, -10.0),
 			);
 
-
 		assert_eq!(0, e1.index);
-		assert_eq!(1, e1.generation);
+		assert_eq!(0, e1.generation);
 		assert_eq!(None, ecs.get_name(&e1));
 
 		assert_eq!(0, e2.index);
