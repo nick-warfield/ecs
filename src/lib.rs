@@ -71,7 +71,7 @@ impl<'a> EntityComponentSystem<'a>
 	pub fn new() -> EntityComponentSystem<'a>
 	{
 		EntityComponentSystem {
-			next_allocation: Entity { index: 0, generation: 0 },
+			next_allocation: Entity { index: 0, generation: 1 },
 			names: vec![],
 			positions: vec![],
 			velocities: vec![],
@@ -115,7 +115,9 @@ impl<'a> EntityComponentSystem<'a>
 	pub fn get(&self, ent: &Entity)
 		-> Option<(&'a Name, &'a Position, &'a Velocity)>
 	{
-		if let (Some(name), Some(pos), Some(vel)) = (
+		if !self.names[ent.index].is_alive()
+			|| ent.index != self.next_allocation.index { None }
+		else if let (Some(name), Some(pos), Some(vel)) = (
 			self.names[ent.index].as_ref(),
 			self.positions[ent.index].as_ref(),
 			self.velocities[ent.index].as_ref(),
@@ -150,6 +152,8 @@ pub mod tests
 			Velocity(0.0, -10.0),
 			);
 
+		assert_eq!(1, e1.generation);
+		assert_eq!(0, e1.index);
 		if let Some((name, pos, vel)) = ecs.get(&e1)
 		{
 			assert_eq!(Name("Pilot Pete"), *name);
@@ -157,6 +161,8 @@ pub mod tests
 			assert_eq!(Velocity(8.0, 0.0), *vel);
 		}
 
+		assert_eq!(1, e2.generation);
+		assert_eq!(1, e2.index);
 		if let Some((name, pos, vel)) = ecs.get(&e2)
 		{
 			assert_eq!(Name("Tame Impala"), *name);
@@ -174,20 +180,76 @@ pub mod tests
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
+
+		ecs.remove_entity(&e1);
+		assert_eq!(None, ecs.get(&e1));
+		ecs.remove_entity(&e1);
+		assert_eq!(None, ecs.get(&e1));
+	}
+
+	#[test]
+	fn overwrite_removed_entity()
+	{
+		let mut ecs = EntityComponentSystem::new();
+		let e1 = ecs.create_entity(
+			"Pilot Pete",
+			Position(5.0, 5.0),
+			Velocity(8.0, 0.0),
+			);
 		let e2 = ecs.create_entity(
 			"Tame Impala",
 			Position(0.1, -50.0),
 			Velocity(0.0, -10.0),
 			);
-
+		
 		ecs.remove_entity(&e1);
 		assert_eq!(None, ecs.get(&e1));
 
+		assert_eq!(e2.index, 1);
+		assert_eq!(e1.generation, 1);
 		if let Some((name, pos, vel)) = ecs.get(&e2)
 		{
 			assert_eq!(Name("Tame Impala"), *name);
 			assert_eq!(Position(0.1, -50.0), *pos);
 			assert_eq!(Velocity(0.0, -10.0), *vel);
+		}
+
+		let e1 = ecs.create_entity(
+			"Hannah Montana",
+			Position(-0.1, -5.0),
+			Velocity(0.0, -11.0),
+			);
+		let e3 = ecs.create_entity(
+			"Pilot Pete",
+			Position(5.0, 5.0),
+			Velocity(8.0, 0.0),
+			);
+
+		assert_eq!(e1.index, 0);
+		assert_eq!(e1.generation, 1);
+		if let Some((name, pos, vel)) = ecs.get(&e1)
+		{
+			assert_eq!(Name("Hannah Montana"), *name);
+			assert_eq!(Position(-0.1, -5.0), *pos);
+			assert_eq!(Velocity(0.0, -11.0), *vel);
+		}
+
+		assert_eq!(e2.index, 1);
+		assert_eq!(e1.generation, 1);
+		if let Some((name, pos, vel)) = ecs.get(&e2)
+		{
+			assert_eq!(Name("Tame Impala"), *name);
+			assert_eq!(Position(0.1, -50.0), *pos);
+			assert_eq!(Velocity(0.0, -10.0), *vel);
+		}
+
+		assert_eq!(e3.index, 2);
+		assert_eq!(e1.generation, 1);
+		if let Some((name, pos, vel)) = ecs.get(&e3)
+		{
+			assert_eq!(Name("Pilot Pete"), *name);
+			assert_eq!(Position(5.0, 5.0), *pos);
+			assert_eq!(Velocity(8.0, 0.0), *vel);
 		}
 	}
 }
