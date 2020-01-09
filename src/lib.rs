@@ -214,4 +214,33 @@ pub mod tests
 		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e3).unwrap());
 
 	}
+
+	#[test]
+	fn different_generations()
+	{
+		let mut ecs = EntityComponentSystem::new();
+		let e1 = ecs.create_entity(
+			"Pilot Pete",
+			Position(5.0, 5.0),
+			Velocity(8.0, 0.0),
+			);
+		ecs.remove_entity(&e1);
+
+		let e2 = ecs.create_entity(
+			"Tame Impala",
+			Position(0.1, -50.0),
+			Velocity(0.0, -10.0),
+			);
+
+
+		assert_eq!(0, e1.index);
+		assert_eq!(1, e1.generation);
+		assert_eq!(None, ecs.get_name(&e1));
+
+		assert_eq!(0, e2.index);
+		assert_eq!(2, e2.generation);
+		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
+		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
+		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
+	}
 }
