@@ -13,57 +13,15 @@ pub struct Entity
 	index: usize,
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct Entry<T: Default>
-{
-	value: T,
-	generation: usize,
-}
-impl<T: Default> Entry<T>
-{
-	pub fn new(value: T, generation: usize) -> Entry<T>
-	{
-		Entry {
-			value,
-			generation,
-		}
-	}
-
-	pub fn as_ref(&self) -> Option<&T>
-	{
-		if self.is_alive() { Some(&self.value) }
-		else { None }
-	}
-	pub fn as_mut(&mut self) -> Option<&mut T>
-	{
-		if self.is_alive() { Some(&mut self.value) }
-		else { None }
-	}
-
-	pub fn is_alive(&self) -> bool { self.generation == 0 }
-	pub fn generation(&self) -> usize { self.generation }
-	pub fn kill(&mut self) -> Option<T>
-	{
-		if self.is_alive()
-		{
-			self.generation = 0;
-			Some(std::mem::take(&mut self.value))
-		}
-		else
-		{
-			None
-		}
-	}
-}
-
 // name this better, it's accurate but long
 #[derive(Debug)]
 pub struct EntityComponentSystem<'a>
 {
-	next_allocation: Entity,
-	names: Vec<Entry<Name<'a>>>,
-	positions: Vec<Entry<Position>>,
-	velocities: Vec<Entry<Velocity>>,
+	next_allocation: Vec<usize>,	// stack of indexes
+	lookup: Vec<usize>,				// generations; gen 0 == dead
+	names: Vec<Option<Name<'a>>>,
+	positions: Vec<Option<Position>>,
+	velocities: Vec<Option<Velocity>>,
 }
 
 impl<'a> EntityComponentSystem<'a>
@@ -71,7 +29,8 @@ impl<'a> EntityComponentSystem<'a>
 	pub fn new() -> EntityComponentSystem<'a>
 	{
 		EntityComponentSystem {
-			next_allocation: Entity { index: 0, generation: 1 },
+			next_allocation: vec![],
+			lookup: vec![],
 			names: vec![],
 			positions: vec![],
 			velocities: vec![],
@@ -84,54 +43,71 @@ impl<'a> EntityComponentSystem<'a>
 		velocity: Velocity,
 		) -> Entity
 	{
-		let next = self.next_allocation.index;
-		let gen = self.next_allocation.generation;
-		if next == self.names.len()
+		let index;
+		if let Some(next) = self.next_allocation.pop()
 		{
-			self.names.push(Entry::new(Name(name), gen));
-			self.positions.push(Entry::new(position, gen));
-			self.velocities.push(Entry::new(velocity, gen));
+			self.lookup[next] = 1;
+			self.names[next] = Some(Name(name));
+			self.positions[next] = Some(position);
+			self.velocities[next] = Some(velocity);
+			index = next;
 		}
 		else
 		{
-			self.names[next] = Entry::new(Name(name), gen);
-			self.positions[next] = Entry::new(position, gen);
-			self.velocities[next] = Entry::new(velocity, gen);
+			self.lookup.push(1);
+			self.names.push(Some(Name(name)));
+			self.positions.push(Some(position));
+			self.velocities.push(Some(velocity));
+			index = self.lookup.len() - 1;
 		}
 
-		let entity = self.next_allocation;
-		self.next_allocation.index += 1;
-		entity
+		Entity { index, generation: 1 }
 	}
 
 	pub fn remove_entity(&mut self, ent: &Entity)
 	{
-		self.names[ent.index].kill();
-		self.positions[ent.index].kill();
-		self.velocities[ent.index].kill();
-		self.next_allocation.index = ent.index;
+		self.lookup[ent.index] = 0;
+		self.next_allocation.push(ent.index);
 	}
 
-	pub fn get(&self, ent: &Entity)
-		-> Option<(&'a Name, &'a Position, &'a Velocity)>
+	// make these a macro or template
+	pub fn get_name(&self, ent: &Entity) -> Option<&Name>
 	{
-		if !self.names[ent.index].is_alive()
-			|| ent.index != self.next_allocation.index
-		{ 
-			None
-		}
-		else if let (Some(name), Some(pos), Some(vel)) = (
-			self.names[ent.index].as_ref(),
-			self.positions[ent.index].as_ref(),
-			self.velocities[ent.index].as_ref(),
-			)
+		if let Some(gen) = self.lookup.get(ent.index)
 		{
-			Some((name, pos, vel))
+			if *gen == ent.generation
+			{
+				self.names[ent.index].as_ref()
+			}
+			else { None }
 		}
-		else
+		else { None }
+	}
+
+	pub fn get_position(&self, ent: &Entity) -> Option<&Position>
+	{
+		if let Some(gen) = self.lookup.get(ent.index)
 		{
-			panic!("Unhandled Case Detected");
+			if *gen == ent.generation
+			{
+				self.positions[ent.index].as_ref()
+			}
+			else { None }
 		}
+		else { None }
+	}
+
+	pub fn get_velocity(&self, ent: &Entity) -> Option<&Velocity>
+	{
+		if let Some(gen) = self.lookup.get(ent.index)
+		{
+			if *gen == ent.generation
+			{
+				self.velocities[ent.index].as_ref()
+			}
+			else { None }
+		}
+		else { None }
 	}
 }
 
@@ -155,25 +131,17 @@ pub mod tests
 			Velocity(0.0, -10.0),
 			);
 
-		assert_eq!(1, e1.generation);
 		assert_eq!(0, e1.index);
+		assert_eq!(1, e1.generation);
+		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e1).unwrap());
+		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e1).unwrap());
+		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e1).unwrap());
 
-		// this kind of test is broken
-		if let Some((name, pos, vel)) = ecs.get(&e1)
-		{
-			assert_eq!(Name("Pilot Pete"), *name);
-			assert_eq!(Position(5.0, 5.0), *pos);
-			assert_eq!(Velocity(8.0, 0.0), *vel);
-		}
-
-		assert_eq!(1, e2.generation);
 		assert_eq!(1, e2.index);
-		if let Some((name, pos, vel)) = ecs.get(&e2)
-		{
-			assert_eq!(Name("Tame Impala"), *name);
-			assert_eq!(Position(0.1, -50.0), *pos);
-			assert_eq!(Velocity(0.0, -10.0), *vel);
-		}
+		assert_eq!(1, e2.generation);
+		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
+		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
+		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
 	}
 
 	#[test]
@@ -187,9 +155,9 @@ pub mod tests
 			);
 
 		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get(&e1));
+		assert_eq!(None, ecs.get_name(&e1));
 		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get(&e1));
+		assert_eq!(None, ecs.get_name(&e1));
 	}
 
 	#[test]
@@ -208,16 +176,13 @@ pub mod tests
 			);
 		
 		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get(&e1));
+		assert_eq!(None, ecs.get_name(&e1));
 
-		assert_eq!(e2.index, 1);
-		assert_eq!(e2.generation, 1);
-		if let Some((name, pos, vel)) = ecs.get(&e2)
-		{
-			assert_eq!(Name("Tame Impala"), *name);
-			assert_eq!(Position(0.1, -50.0), *pos);
-			assert_eq!(Velocity(0.0, -10.0), *vel);
-		}
+		assert_eq!(1, e2.index);
+		assert_eq!(1, e2.generation);
+		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
+		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
+		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
 
 		let e1 = ecs.create_entity(
 			"Hannah Montana",
@@ -230,31 +195,23 @@ pub mod tests
 			Velocity(8.0, 0.0),
 			);
 
-		assert_eq!(e1.index, 0);
-		assert_eq!(e1.generation, 1);
-		if let Some((name, pos, vel)) = ecs.get(&e1)
-		{
-			assert_eq!(Name("Hannah Montana"), *name);
-			assert_eq!(Position(-0.1, -5.0), *pos);
-			assert_eq!(Velocity(0.0, -11.0), *vel);
-		}
+		assert_eq!(0, e1.index);
+		assert_eq!(1, e1.generation);
+		assert_eq!(Name("Hannah Montana"), *ecs.get_name(&e1).unwrap());
+		assert_eq!(Position(-0.1, -5.0), *ecs.get_position(&e1).unwrap());
+		assert_eq!(Velocity(0.0, -11.0), *ecs.get_velocity(&e1).unwrap());
 
-		assert_eq!(e2.index, 1);
-		assert_eq!(e2.generation, 1);
-		if let Some((name, pos, vel)) = ecs.get(&e2)
-		{
-			assert_eq!(Name("Tame Impala"), *name);
-			assert_eq!(Position(0.1, -50.0), *pos);
-			assert_eq!(Velocity(0.0, -10.0), *vel);
-		}
+		assert_eq!(1, e2.index);
+		assert_eq!(1, e2.generation);
+		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
+		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
+		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
 
-		assert_eq!(e3.index, 2);
-		assert_eq!(e3.generation, 1);
-		if let Some((name, pos, vel)) = ecs.get(&e3)
-		{
-			assert_eq!(Name("Pilot Pete"), *name);
-			assert_eq!(Position(5.0, 5.0), *pos);
-			assert_eq!(Velocity(8.0, 0.0), *vel);
-		}
+		assert_eq!(2, e3.index);
+		assert_eq!(1, e3.generation);
+		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e3).unwrap());
+		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e3).unwrap());
+		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e3).unwrap());
+
 	}
 }
