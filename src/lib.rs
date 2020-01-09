@@ -13,18 +13,23 @@ pub struct Entity
 	index: usize,
 }
 
-// name this better, it's accurate but long
-#[derive(Debug, Default)]
-pub struct EntityComponentSystem<'a>
+// this will be a good place to move option stuff?
+pub struct Component
 {
-	next_allocation: Vec<usize>,		// stack of indexes
-	lookup: Vec<usize>,					// generations; odd == dead
+
+}
+
+#[derive(Debug, Default)]
+pub struct System<'a>
+{
+	next_allocation: Vec<usize>,
+	generations: Vec<usize>,			// odd == dead
 	names: Vec<Option<Name<'a>>>,
 	positions: Vec<Option<Position>>,
 	velocities: Vec<Option<Velocity>>,
 }
 
-impl<'a> EntityComponentSystem<'a>
+impl<'a> System<'a>
 {
 	pub fn create_entity(
 		&mut self,
@@ -35,23 +40,23 @@ impl<'a> EntityComponentSystem<'a>
 	{
 		if let Some(next) = self.next_allocation.pop()
 		{
-			self.lookup[next] += 1;
+			self.generations[next] += 1;
 			self.names[next] = Some(Name(name));
 			self.positions[next] = Some(position);
 			self.velocities[next] = Some(velocity);
 			Entity {
 				index: next,
-				generation: self.lookup[next],
+				generation: self.generations[next],
 			}
 		}
 		else
 		{
-			self.lookup.push(0);
+			self.generations.push(0);
 			self.names.push(Some(Name(name)));
 			self.positions.push(Some(position));
 			self.velocities.push(Some(velocity));
 			Entity {
-				index: self.lookup.len() - 1,
+				index: self.generations.len() - 1,
 				generation: 0,
 			}
 		}
@@ -59,11 +64,11 @@ impl<'a> EntityComponentSystem<'a>
 
 	pub fn remove_entity(&mut self, ent: &Entity)
 	{
-		if let Some(gen) = self.lookup.get(ent.index)
+		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen % 2 == 0
 			{
-				self.lookup[ent.index] += 1;
+				self.generations[ent.index] += 1;
 				self.next_allocation.push(ent.index);
 			}
 		}
@@ -72,7 +77,7 @@ impl<'a> EntityComponentSystem<'a>
 	// make these a macro or template
 	pub fn get_name(&self, ent: &Entity) -> Option<&Name>
 	{
-		if let Some(gen) = self.lookup.get(ent.index)
+		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen == ent.generation
 			{
@@ -85,7 +90,7 @@ impl<'a> EntityComponentSystem<'a>
 
 	pub fn get_position(&self, ent: &Entity) -> Option<&Position>
 	{
-		if let Some(gen) = self.lookup.get(ent.index)
+		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen == ent.generation
 			{
@@ -98,7 +103,7 @@ impl<'a> EntityComponentSystem<'a>
 
 	pub fn get_velocity(&self, ent: &Entity) -> Option<&Velocity>
 	{
-		if let Some(gen) = self.lookup.get(ent.index)
+		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen == ent.generation
 			{
@@ -118,7 +123,7 @@ pub mod tests
 	#[test]
 	fn create_entities()
 	{
-		let mut ecs = EntityComponentSystem::default();
+		let mut ecs = System::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -146,7 +151,7 @@ pub mod tests
 	#[test]
 	fn remove_entity()
 	{
-		let mut ecs = EntityComponentSystem::default();
+		let mut ecs = System::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -162,7 +167,7 @@ pub mod tests
 	#[test]
 	fn stack_allocation()
 	{
-		let mut ecs = EntityComponentSystem::default();
+		let mut ecs = System::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
@@ -208,7 +213,7 @@ pub mod tests
 	#[test]
 	fn different_generations()
 	{
-		let mut ecs = EntityComponentSystem::default();
+		let mut ecs = System::default();
 		let e1 = ecs.create_entity(
 			"Pilot Pete",
 			Position(5.0, 5.0),
