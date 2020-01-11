@@ -1,10 +1,16 @@
+use anymap::AnyMap;
+
 // just for testing
 #[derive(Debug, Default, PartialEq)]
-pub struct Name<'a>(&'a str);
+pub struct Name(String);
 #[derive(Debug, Default, PartialEq)]
 pub struct Position(f32, f32);
 #[derive(Debug, Default, PartialEq)]
 pub struct Velocity(f32, f32);
+
+type NameData = Vec::<Option::<Name>>;
+type PositionData = Vec::<Option::<Position>>;
+type VelocityData = Vec::<Option::<Velocity>>;
 
 #[derive(Debug, Copy, Clone)]
 pub struct Entity
@@ -13,37 +19,60 @@ pub struct Entity
 	index: usize,
 }
 
-// this will be a good place to move option stuff?
-pub struct Component
-{
-
-}
-
-#[derive(Debug, Default)]
-pub struct System<'a>
+#[derive(Debug)]
+pub struct System
 {
 	next_allocation: Vec<usize>,
-	generations: Vec<usize>,			// odd == dead
-	names: Vec<Option<Name<'a>>>,
-	positions: Vec<Option<Position>>,
-	velocities: Vec<Option<Velocity>>,
+	generations: Vec<usize>,		// odd == dead
+	data: AnyMap,
 }
 
-impl<'a> System<'a>
+impl System
 {
+	pub fn new() -> System
+	{
+		let mut data = AnyMap::new();
+		data.insert::<NameData>(vec![]);
+		data.insert::<PositionData>(vec![]);
+		data.insert::<VelocityData>(vec![]);
+
+		System {
+			next_allocation: vec![],
+			generations: vec![],
+			data,
+		}
+	}
+
+	#[inline]
+	fn push<T: 'static>(&mut self, value: T)
+	{
+		self.data.get_mut::<Vec<Option<T>>>()
+			.expect("A type was not inserted into anymap")
+			.push(Some(value));
+	}
+
+	#[inline]
+	fn insert<T: 'static>(&mut self, value: T, index: usize)
+	{
+		self.data.get_mut::<Vec<Option<T>>>()
+			.expect("A type was not inserted into anymap")
+			[index] = Some(value);
+	}
+
+
 	pub fn create_entity(
 		&mut self,
-		name: &'a str, 
-		position: Position,
-		velocity: Velocity,
+		name: Name,
+		pos: Position,
+		vel: Velocity,
 		) -> Entity
 	{
 		if let Some(next) = self.next_allocation.pop()
 		{
 			self.generations[next] += 1;
-			self.names[next] = Some(Name(name));
-			self.positions[next] = Some(position);
-			self.velocities[next] = Some(velocity);
+			self.insert(name, next);
+			self.insert(pos, next);
+			self.insert(vel, next);
 			Entity {
 				index: next,
 				generation: self.generations[next],
@@ -52,9 +81,9 @@ impl<'a> System<'a>
 		else
 		{
 			self.generations.push(0);
-			self.names.push(Some(Name(name)));
-			self.positions.push(Some(position));
-			self.velocities.push(Some(velocity));
+			self.push(name);
+			self.push(pos);
+			self.push(vel);
 			Entity {
 				index: self.generations.len() - 1,
 				generation: 0,
@@ -62,7 +91,7 @@ impl<'a> System<'a>
 		}
 	}
 
-	pub fn remove_entity(&mut self, ent: &Entity)
+	pub fn remove(&mut self, ent: &Entity) -> Option<()>
 	{
 		if let Some(gen) = self.generations.get(ent.index)
 		{
@@ -70,44 +99,37 @@ impl<'a> System<'a>
 			{
 				self.generations[ent.index] += 1;
 				self.next_allocation.push(ent.index);
-			}
-		}
-	}
-
-	// make these a macro or template
-	pub fn get_name(&self, ent: &Entity) -> Option<&Name>
-	{
-		if let Some(gen) = self.generations.get(ent.index)
-		{
-			if *gen == ent.generation
-			{
-				self.names[ent.index].as_ref()
+				None
 			}
 			else { None }
 		}
 		else { None }
 	}
 
-	pub fn get_position(&self, ent: &Entity) -> Option<&Position>
+	pub fn get<T: 'static>(&self, ent: &Entity) -> Option<&T>
 	{
 		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen == ent.generation
 			{
-				self.positions[ent.index].as_ref()
+				self.data.get::<Vec<Option<T>>>()
+					.unwrap()[ent.index]
+					.as_ref()
 			}
 			else { None }
 		}
 		else { None }
 	}
 
-	pub fn get_velocity(&self, ent: &Entity) -> Option<&Velocity>
+	pub fn get_mut<T: 'static>(&mut self, ent: &Entity) -> Option<&mut T>
 	{
 		if let Some(gen) = self.generations.get(ent.index)
 		{
 			if *gen == ent.generation
 			{
-				self.velocities[ent.index].as_ref()
+				self.data.get_mut::<Vec<Option<T>>>()
+					.unwrap()[ent.index]
+					.as_mut()
 			}
 			else { None }
 		}
@@ -123,118 +145,154 @@ pub mod tests
 	#[test]
 	fn create_entities()
 	{
-		let mut ecs = System::default();
+		let mut ecs = System::new();
 		let e1 = ecs.create_entity(
-			"Pilot Pete",
+			Name(format!("Pilot Pete")),
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
 		let e2 = ecs.create_entity(
-			"Tame Impala",
+			Name(format!("Tame Impala")),
 			Position(0.1, -50.0),
 			Velocity(0.0, -10.0),
 			);
 
 		assert_eq!(0, e1.index);
 		assert_eq!(0, e1.generation);
-		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e1).unwrap());
-		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e1).unwrap());
-		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e1).unwrap());
+		assert_eq!(
+			Name(format!("Pilot Pete")),
+			*ecs.get::<Name>(&e1).unwrap());
+		assert_eq!(
+			Position(5.0, 5.0),
+			*ecs.get::<Position>(&e1).unwrap());
+		assert_eq!(
+			Velocity(8.0, 0.0),
+			*ecs.get::<Velocity>(&e1).unwrap());
 
 		assert_eq!(1, e2.index);
 		assert_eq!(0, e2.generation);
-		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
-		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
-		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
+		assert_eq!(
+			Name(format!("Tame Impala")),
+			*ecs.get::<Name>(&e2).unwrap());
+		assert_eq!(
+			Position(0.1, -50.0),
+			*ecs.get::<Position>(&e2).unwrap());
+		assert_eq!(
+			Velocity(0.0, -10.0),
+			*ecs.get::<Velocity>(&e2).unwrap());
 	}
 
 	#[test]
 	fn remove_entity()
 	{
-		let mut ecs = System::default();
+		let mut ecs = System::new();
 		let e1 = ecs.create_entity(
-			"Pilot Pete",
+			Name(format!("Pilot Pete")),
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
 
-		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get_name(&e1));
-		ecs.remove_entity(&e1);
-		assert_eq!(None, ecs.get_name(&e1));
+		ecs.remove(&e1);
+		assert_eq!(None, ecs.get::<Name>(&e1));
+		ecs.remove(&e1);
+		assert_eq!(None, ecs.get::<Name>(&e1));
 	}
 
 	#[test]
 	fn stack_allocation()
 	{
-		let mut ecs = System::default();
+		let mut ecs = System::new();
 		let e1 = ecs.create_entity(
-			"Pilot Pete",
+			Name(format!("Pilot Pete")),
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
 		let e2 = ecs.create_entity(
-			"Tame Impala",
+			Name(format!("Tame Impala")),
 			Position(0.1, -50.0),
 			Velocity(0.0, -10.0),
 			);
 		
-		ecs.remove_entity(&e1);
+		ecs.remove(&e1);
 		let e1 = ecs.create_entity(
-			"Hannah Montana",
+			Name(format!("Hannah Montana")),
 			Position(-0.1, -5.0),
 			Velocity(0.0, -11.0),
 			);
 		let e3 = ecs.create_entity(
-			"Pilot Pete",
+			Name(format!("Pilot Pete")),
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
 
 		assert_eq!(0, e1.index);
 		assert_eq!(2, e1.generation);
-		assert_eq!(Name("Hannah Montana"), *ecs.get_name(&e1).unwrap());
-		assert_eq!(Position(-0.1, -5.0), *ecs.get_position(&e1).unwrap());
-		assert_eq!(Velocity(0.0, -11.0), *ecs.get_velocity(&e1).unwrap());
+		assert_eq!(
+			Name(format!("Hannah Montana")),
+			*ecs.get::<Name>(&e1).unwrap());
+		assert_eq!(
+			Position(-0.1, -5.0),
+			*ecs.get::<Position>(&e1).unwrap());
+		assert_eq!(
+			Velocity(0.0, -11.0),
+			*ecs.get::<Velocity>(&e1).unwrap());
 
 		assert_eq!(1, e2.index);
 		assert_eq!(0, e2.generation);
-		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
-		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
-		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
+		assert_eq!(
+			Name(format!("Tame Impala")),
+			*ecs.get::<Name>(&e2).unwrap());
+		assert_eq!(
+			Position(0.1, -50.0),
+			*ecs.get::<Position>(&e2).unwrap());
+		assert_eq!(
+			Velocity(0.0, -10.0),
+			*ecs.get::<Velocity>(&e2).unwrap());
 
 		assert_eq!(2, e3.index);
 		assert_eq!(0, e3.generation);
-		assert_eq!(Name("Pilot Pete"), *ecs.get_name(&e3).unwrap());
-		assert_eq!(Position(5.0, 5.0), *ecs.get_position(&e3).unwrap());
-		assert_eq!(Velocity(8.0, 0.0), *ecs.get_velocity(&e3).unwrap());
+		assert_eq!(
+			Name(format!("Pilot Pete")),
+			*ecs.get::<Name>(&e3).unwrap());
+		assert_eq!(
+			Position(5.0, 5.0),
+			*ecs.get::<Position>(&e3).unwrap());
+		assert_eq!(
+			Velocity(8.0, 0.0),
+			*ecs.get::<Velocity>(&e3).unwrap());
 	}
 
 	#[test]
 	fn different_generations()
 	{
-		let mut ecs = System::default();
+		let mut ecs = System::new();
 		let e1 = ecs.create_entity(
-			"Pilot Pete",
+			Name(format!("Pilot Pete")),
 			Position(5.0, 5.0),
 			Velocity(8.0, 0.0),
 			);
-		ecs.remove_entity(&e1);
+		ecs.remove(&e1);
 
 		let e2 = ecs.create_entity(
-			"Tame Impala",
+			Name(format!("Tame Impala")),
 			Position(0.1, -50.0),
 			Velocity(0.0, -10.0),
 			);
 
 		assert_eq!(0, e1.index);
 		assert_eq!(0, e1.generation);
-		assert_eq!(None, ecs.get_name(&e1));
+		assert_eq!(None, ecs.get::<Name>(&e1));
 
 		assert_eq!(0, e2.index);
 		assert_eq!(2, e2.generation);
-		assert_eq!(Name("Tame Impala"), *ecs.get_name(&e2).unwrap());
-		assert_eq!(Position(0.1, -50.0), *ecs.get_position(&e2).unwrap());
-		assert_eq!(Velocity(0.0, -10.0), *ecs.get_velocity(&e2).unwrap());
+		assert_eq!(
+			Name(format!("Tame Impala")),
+			*ecs.get::<Name>(&e2).unwrap());
+		assert_eq!(
+			Position(0.1, -50.0),
+			*ecs.get::<Position>(&e2).unwrap());
+		assert_eq!(
+			Velocity(0.0, -10.0),
+			*ecs.get::<Velocity>(&e2).unwrap());
 	}
 }
