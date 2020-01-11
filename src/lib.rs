@@ -47,7 +47,9 @@ impl System
 	fn push<T: 'static>(&mut self, value: T)
 	{
 		self.data.get_mut::<Vec<Option<T>>>()
-			.expect("A type was not inserted into anymap")
+			.expect(format!(
+				"Type: {} was not added to data",
+				std::any::type_name::<T>()).as_str())
 			.push(Some(value));
 	}
 
@@ -55,7 +57,9 @@ impl System
 	fn insert<T: 'static>(&mut self, value: T, index: usize)
 	{
 		self.data.get_mut::<Vec<Option<T>>>()
-			.expect("A type was not inserted into anymap")
+			.expect(format!(
+				"Type: {} was not added to data",
+				std::any::type_name::<T>()).as_str())
 			[index] = Some(value);
 	}
 
@@ -73,6 +77,7 @@ impl System
 			self.insert(name, next);
 			self.insert(pos, next);
 			self.insert(vel, next);
+
 			Entity {
 				index: next,
 				generation: self.generations[next],
@@ -128,7 +133,10 @@ impl System
 			if *gen == ent.generation
 			{
 				self.data.get_mut::<Vec<Option<T>>>()
-					.unwrap()[ent.index]
+					.expect(format!(
+						"Type: {} was not added to data",
+						std::any::type_name::<T>()).as_str())
+					[ent.index]
 					.as_mut()
 			}
 			else { None }
