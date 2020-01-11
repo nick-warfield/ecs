@@ -303,4 +303,12 @@ pub mod tests
 			Velocity(0.0, -10.0),
 			*ecs.get::<Velocity>(&e2).unwrap());
 	}
+
+	#[test]
+	#[should_panic]
+	fn access_undeclared_component_panics()
+	{
+		let mut ecs = System::new();
+		ecs.push(0);
+	}
 }
