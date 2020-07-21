@@ -1,4 +1,4 @@
-use anymap::AnyMap;
+#![feature(bool_to_option)]
 
 // just for testing
 #[derive(Debug, Default, PartialEq)]
@@ -8,87 +8,59 @@ pub struct Position(f32, f32);
 #[derive(Debug, Default, PartialEq)]
 pub struct Velocity(f32, f32);
 
-type NameData = Vec::<Option::<Name>>;
-type PositionData = Vec::<Option::<Position>>;
-type VelocityData = Vec::<Option::<Velocity>>;
-
 #[derive(Debug, Copy, Clone)]
-pub struct Entity
-{
+pub struct Entity {
 	generation: usize,
 	index: usize,
 }
 
-#[derive(Debug)]
-pub struct System
-{
-	next_allocation: Vec<usize>,
-	generations: Vec<usize>,		// odd == dead
-	data: AnyMap,
+const ALIVE:	u16 = 0b0000_0000_0000_0001;
+const NAME:		u16 = 0b0000_0000_0000_0010;
+const POSITION:	u16 = 0b0000_0000_0000_0100;
+const VELOCITY:	u16 = 0b0000_0000_0000_1000;
+
+pub struct ComponentList<'a> {
+	pub name: Option<&'a Name>,
+	pub positon: Option<&'a Position>,
+	pub velocity: Option<&'a Velocity>,
 }
 
-impl System
-{
-	pub fn new() -> System
-	{
-		let mut data = AnyMap::new();
-		data.insert::<NameData>(vec![]);
-		data.insert::<PositionData>(vec![]);
-		data.insert::<VelocityData>(vec![]);
+#[derive(Debug)]
+pub struct System {
+	next_allocation: Vec<usize>,
+	generations: Vec<usize>,
 
+	components: Vec<u16>,
+	name: Vec<Name>,
+	pos: Vec<Position>,
+	vel: Vec<Velocity>,
+}
+
+impl System {
+	pub fn new() -> System {
 		System {
 			next_allocation: vec![],
 			generations: vec![],
-			data,
+			components: vec![],
+			name: vec![],
+			pos: vec![],
+			vel: vec![],
 		}
 	}
 
-	#[inline]
-	fn push<T: 'static>(&mut self, value: T)
-	{
-		self.data.get_mut::<Vec<Option<T>>>()
-			.expect(format!(
-				"Type: {} was not added to data",
-				std::any::type_name::<T>()).as_str())
-			.push(Some(value));
-	}
-
-	#[inline]
-	fn insert<T: 'static>(&mut self, value: T, index: usize)
-	{
-		self.data.get_mut::<Vec<Option<T>>>()
-			.expect(format!(
-				"Type: {} was not added to data",
-				std::any::type_name::<T>()).as_str())
-			[index] = Some(value);
-	}
-
-
-	pub fn create_entity(
-		&mut self,
-		name: Name,
-		pos: Position,
-		vel: Velocity,
-		) -> Entity
-	{
-		if let Some(next) = self.next_allocation.pop()
-		{
+	pub fn create_entity(&mut self, components: u16) -> Entity {
+		let components = components | ALIVE;
+		if let Some(next) = self.next_allocation.pop() {
 			self.generations[next] += 1;
-			self.insert(name, next);
-			self.insert(pos, next);
-			self.insert(vel, next);
+			self.components[next] = components;
 
 			Entity {
 				index: next,
 				generation: self.generations[next],
 			}
-		}
-		else
-		{
+		} else {
 			self.generations.push(0);
-			self.push(name);
-			self.push(pos);
-			self.push(vel);
+			self.components.push(components);
 			Entity {
 				index: self.generations.len() - 1,
 				generation: 0,
@@ -96,63 +68,45 @@ impl System
 		}
 	}
 
-	pub fn remove(&mut self, ent: &Entity) -> Option<()>
-	{
-		if let Some(gen) = self.generations.get(ent.index)
-		{
-			if *gen % 2 == 0
-			{
-				self.generations[ent.index] += 1;
-				self.next_allocation.push(ent.index);
-				None
-			}
-			else { None }
+	pub fn remove(&mut self, ent: &Entity) {
+		if self.is_alive(ent) {
+			self.components[ent.index] &= !ALIVE;
+			self.next_allocation.push(ent.index);
 		}
-		else { None }
 	}
 
-	pub fn get<T: 'static>(&self, ent: &Entity) -> Option<&T>
-	{
-		if let Some(gen) = self.generations.get(ent.index)
-		{
-			if *gen == ent.generation
-			{
-				self.data.get::<Vec<Option<T>>>()
-					.unwrap()[ent.index]
-					.as_ref()
-			}
-			else { None }
-		}
-		else { None }
+	pub fn get(&self, ent: &Entity) -> Option<ComponentList> {
+		self.is_alive(ent).then_some(ComponentList {
+			name: self.has_components(ent, NAME).then_some(&self.name[ent.index]),
+			positon: self.has_components(ent, POSITION).then_some(&self.pos[ent.index]),
+			velocity: self.has_components(ent, VELOCITY).then_some(&self.vel[ent.index]),
+		})
 	}
 
-	pub fn get_mut<T: 'static>(&mut self, ent: &Entity) -> Option<&mut T>
-	{
-		if let Some(gen) = self.generations.get(ent.index)
-		{
-			if *gen == ent.generation
-			{
-				self.data.get_mut::<Vec<Option<T>>>()
-					.expect(format!(
-						"Type: {} was not added to data",
-						std::any::type_name::<T>()).as_str())
-					[ent.index]
-					.as_mut()
-			}
-			else { None }
-		}
-		else { None }
+	pub fn get_mut(&mut self, ent: &Entity) -> Option<ComponentList> {
+		self.is_alive(ent).then_some(ComponentList {
+			name: self.has_components(ent, NAME).then_some(&self.name[ent.index]),
+			positon: self.has_components(ent, POSITION).then_some(&self.pos[ent.index]),
+			velocity: self.has_components(ent, VELOCITY).then_some(&self.vel[ent.index]),
+		})
+	}
+
+	pub fn is_alive(&self, ent: &Entity) -> bool {
+		self.generations[ent.index] == ent.generation
+			&& self.components[ent.index] & ALIVE == ALIVE
+	}
+
+	fn has_components(&self, ent: &Entity, components: u16) -> bool {
+		self.components[ent.index] & components == components
 	}
 }
 
 #[cfg(test)]
-pub mod tests
-{
+pub mod tests {
 	use crate::*;
 
 	#[test]
-	fn create_entities()
-	{
+	fn create_entities() {
 		let mut ecs = System::new();
 		let e1 = ecs.create_entity(
 			Name(format!("Pilot Pete")),
